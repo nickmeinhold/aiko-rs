@@ -164,6 +164,16 @@ Each crate has unit tests. Key test files:
 - `aiko-webrtc/src/codec.rs` - Frame envelope roundtrips, audio sample
 - `aiko-webrtc/tests/e2e.rs` - Full data channel roundtrip (in-process signaling)
 
+## WebRTC Media Gotchas
+
+These are easy to hit when working on media tracks:
+
+- **`codec_capability()` must set `clock_rate`** — Video needs 90000, audio needs 48000. Defaulting to 0 silently breaks codec negotiation.
+- **Don't encode before connection** — Wait for `PeerEvent::StateChanged(PeerState::Connected)` before sending frames. The browser's H264 decoder needs the initial keyframe (IDR + SPS/PPS); if you start encoding early, the keyframe is sent into the void and the browser shows black.
+- **Force periodic keyframes** — Call `encoder.force_intra_frame()` every ~2 seconds so the decoder can (re)sync if it misses a frame. Without this, a single dropped packet means permanent black until restart.
+- **Connection sequence**: Connecting → Connected → TrackAdded(RemoteTrack) — only start encoding after Connected.
+- **`openh264::Encoder::new()`** detects dimensions from the first `YUVSource` — no need to pass width/height to the config.
+
 ## Notes
 
 - Uses Tokio for async runtime
