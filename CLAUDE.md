@@ -15,7 +15,8 @@ crates/
 ├── aiko-core/      # Core traits and types (no dependencies on other aiko crates)
 ├── aiko-actor/     # Actor system (depends on aiko-core)
 ├── aiko-pipeline/  # Pipeline builder (depends on aiko-core, aiko-actor)
-└── aiko-mqtt/      # MQTT transport (depends on aiko-core)
+├── aiko-mqtt/      # MQTT transport (depends on aiko-core)
+└── aiko-webrtc/    # WebRTC transport (depends on aiko-core)
 ```
 
 ### Key Types
@@ -65,11 +66,13 @@ cargo fmt --all
 2. The `Config` type should implement `ElementConfig` (use `()` if no config needed)
 3. Mark stateless elements with `fn is_stateless(&self) -> bool { true }`
 
-### Adding New Data Types for MQTT
+### Adding New Data Types for MQTT / WebRTC
 
-1. Define the type in `aiko-mqtt/src/codec.rs`
+1. Define the type in the transport's `codec.rs` (`aiko-mqtt/src/codec.rs` or `aiko-webrtc/src/codec.rs`)
 2. Implement `NetworkSerializable` trait with a unique type name
 3. Derive `Serialize` and `Deserialize`
+
+> **Note:** `NetworkSerializable` and `FrameEnvelope` are currently duplicated between `aiko-mqtt` and `aiko-webrtc` to avoid cross-transport dependency. A future refactor could move these to `aiko-core`.
 
 ### Pipeline Patterns
 
@@ -100,7 +103,11 @@ Pipeline::new("name")
 - Actor system: `crates/aiko-actor/src/actor.rs`
 - Pipeline builder: `crates/aiko-pipeline/src/builder.rs`
 - MQTT client: `crates/aiko-mqtt/src/client.rs`
-- Example: `crates/aiko-pipeline/examples/simple_pipeline.rs`
+- WebRTC transport: `crates/aiko-webrtc/src/transport.rs`
+- WebRTC signaling: `crates/aiko-webrtc/src/signaling.rs`
+- WebRTC peer management: `crates/aiko-webrtc/src/peer.rs`
+- Pipeline example: `crates/aiko-pipeline/examples/simple_pipeline.rs`
+- WebRTC example: `crates/aiko-webrtc/examples/data_channel.rs`
 
 ## Testing
 
@@ -109,11 +116,15 @@ Each crate has unit tests. Key test files:
 - `aiko-actor/src/registry.rs` - Actor registration
 - `aiko-mqtt/src/codec.rs` - Serialization roundtrips
 - `aiko-pipeline/src/builder.rs` - Pipeline construction
+- `aiko-webrtc/src/codec.rs` - Frame envelope roundtrips, audio sample
 
 ## Notes
 
 - Uses Tokio for async runtime
 - Actor mailboxes use `tokio::sync::mpsc` channels
 - MQTT uses `rumqttc` with optional TLS
+- WebRTC uses the pure-Rust `webrtc` crate (v0.14)
+- WebRTC signaling is pluggable via the `SignalingClient` trait (built-in WebSocket impl provided)
+- WebRTC data channels map to MQTT topics conceptually — named channels replace named topics
 - All elements run as separate actors for concurrency
 - Frame metadata includes nanosecond timestamps

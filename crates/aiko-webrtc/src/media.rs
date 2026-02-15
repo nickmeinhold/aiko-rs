@@ -50,8 +50,14 @@ impl LocalTrackConfig {
 
     /// Build the RTP codec capability for this track config.
     pub(crate) fn codec_capability(&self) -> RTCRtpCodecCapability {
+        let (clock_rate, channels) = match self.kind {
+            MediaKind::Audio => (48_000, 2),
+            MediaKind::Video => (90_000, 0),
+        };
         RTCRtpCodecCapability {
             mime_type: self.codec_mime_type.clone(),
+            clock_rate,
+            channels,
             ..Default::default()
         }
     }
