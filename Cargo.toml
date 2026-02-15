@@ -4,6 +4,7 @@ members = [
     "crates/aiko-actor",
     "crates/aiko-pipeline",
     "crates/aiko-mqtt",
+    "crates/aiko-webrtc",
 ]
 resolver = "2"
 
@@ -30,6 +31,10 @@ bincode = "1.3"
 # MQTT
 rumqttc = "0.24"
 
+# WebRTC
+webrtc = "0.14"
+tokio-tungstenite = "0.24"
+
 # Utilities
 thiserror = "1.0"
 tracing = "0.1"
@@ -44,3 +49,4 @@ aiko-core = { path = "crates/aiko-core" }
 aiko-actor = { path = "crates/aiko-actor" }
 aiko-pipeline = { path = "crates/aiko-pipeline" }
 aiko-mqtt = { path = "crates/aiko-mqtt" }
+aiko-webrtc = { path = "crates/aiko-webrtc" }

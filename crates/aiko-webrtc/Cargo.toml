@@ -1,0 +1,27 @@
+[package]
+name = "aiko-webrtc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "WebRTC transport layer for the Aiko distributed pipeline framework"
+
+[dependencies]
+aiko-core.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+bincode.workspace = true
+uuid.workspace = true
+bytes.workspace = true
+futures.workspace = true
+dashmap.workspace = true
+webrtc.workspace = true
+tokio-tungstenite.workspace = true
+url = "2"
+
+[[example]]
+name = "data_channel"
