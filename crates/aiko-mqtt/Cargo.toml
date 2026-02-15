@@ -1,0 +1,19 @@
+[package]
+name = "aiko-mqtt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "MQTT transport layer for the Aiko distributed pipeline framework"
+
+[dependencies]
+aiko-core.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+bincode.workspace = true
+rumqttc.workspace = true
+uuid.workspace = true
