@@ -96,6 +96,48 @@ Pipeline::new("name")
     .build();  // Returns OpenPipeline<OutputType>
 ```
 
+## Current Status & Roadmap
+
+### What's Working
+
+- **Core framework**: Frame types, Element/Source/Sink traits, type-state pipeline builder, actor system — all functional with compile-time type safety
+- **MQTT transport**: Publish/subscribe with typed frame serialization over MQTT
+- **WebRTC data channels**: Full peer-to-peer data channel communication with pluggable signaling (WebSocket impl provided), e2e tested
+- **WebRTC media tracks**: H264 video streaming from Rust to browser, verified with a live demo (SMPTE color bars at 640x480/30fps encoded with `openh264`)
+- **Video demo**: Three-component demo (signaling server + Rust peer + browser page) that shows browser camera alongside Rust-generated video
+
+### What's Next
+
+1. **Pipeline ↔ WebRTC integration** — The pipeline system and WebRTC transport are currently separate. Create `WebRtcVideoSource` / `WebRtcVideoSink` elements so WebRTC streams can be pipeline stages:
+   ```rust
+   Pipeline::new("video")
+       .source(WebRtcVideoSource::new(config))
+       .then(MyVideoTransform)
+       .sink(WebRtcVideoSink::new(config));
+   ```
+   This is the most important architectural gap — connecting the two halves of the system.
+
+2. **Incoming video processing** — The browser sends camera frames to Rust but they're currently ignored. Decode them (H264 via `openh264::Decoder`) and feed them into a pipeline for processing.
+
+3. **Audio support** — The media track plumbing already handles `MediaKind::Audio` with clock_rate 48000. Add Opus encoding/decoding to enable audio pipelines.
+
+4. **Move `NetworkSerializable` to `aiko-core`** — Currently duplicated between `aiko-mqtt` and `aiko-webrtc`. Moving to core would let both transports share the codec abstraction.
+
+5. **Robustness** — Reconnection logic, graceful shutdown, error handling for codec negotiation failures, proper STUN/TURN configuration.
+
+### Running the Video Demo
+
+```bash
+# Terminal 1: signaling relay
+cargo run -p aiko-webrtc --example signaling_server
+
+# Terminal 2: Rust video peer (H264 SMPTE bars)
+cargo run -p aiko-webrtc --example video_demo --features video-demo
+
+# Browser: open crates/aiko-webrtc/examples/video_demo.html
+# → left panel: camera, right panel: Rust-generated color bars
+```
+
 ## File Locations
 
 - Core traits: `crates/aiko-core/src/element.rs`
@@ -108,6 +150,9 @@ Pipeline::new("name")
 - WebRTC peer management: `crates/aiko-webrtc/src/peer.rs`
 - Pipeline example: `crates/aiko-pipeline/examples/simple_pipeline.rs`
 - WebRTC example: `crates/aiko-webrtc/examples/data_channel.rs`
+- Video demo: `crates/aiko-webrtc/examples/video_demo.rs`
+- Signaling server: `crates/aiko-webrtc/examples/signaling_server.rs`
+- Browser page: `crates/aiko-webrtc/examples/video_demo.html`
 
 ## Testing
 
@@ -117,6 +162,7 @@ Each crate has unit tests. Key test files:
 - `aiko-mqtt/src/codec.rs` - Serialization roundtrips
 - `aiko-pipeline/src/builder.rs` - Pipeline construction
 - `aiko-webrtc/src/codec.rs` - Frame envelope roundtrips, audio sample
+- `aiko-webrtc/tests/e2e.rs` - Full data channel roundtrip (in-process signaling)
 
 ## Notes
 
