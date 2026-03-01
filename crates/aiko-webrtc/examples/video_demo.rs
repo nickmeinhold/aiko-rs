@@ -1,7 +1,8 @@
-//! WebRTC video demo — Rust peer sends H264 SMPTE color bars.
+//! WebRTC video demo — Rust peer sends H264 SMPTE color bars via pipeline.
 //!
-//! Connects as the Offerer, adds an H264 video track, and continuously
-//! streams animated SMPTE color bars at 640×480 / 30 fps.
+//! Demonstrates the pipeline ↔ WebRTC integration:
+//! - `SmpteSource` generates I420 `VideoFrame`s with scrolling color bars
+//! - `WebRtcVideoSink` encodes them to H264 and sends via WebRTC
 //!
 //! # Prerequisites
 //!
@@ -11,16 +12,20 @@
 //!    `cargo run -p aiko-webrtc --example video_demo --features video-demo`
 //! 3. Open `crates/aiko-webrtc/examples/video_demo.html` in a browser.
 
-use aiko_webrtc::media::{LocalTrackConfig, MediaKind};
+use aiko_core::element::{ElementContext, SinkElement, SourceElement};
+use aiko_core::error::ElementError;
+use aiko_core::frame::{Frame, FrameId, StreamId};
+use aiko_core::media::{PixelFormat, VideoFrame};
+use aiko_webrtc::media::LocalTrackConfig;
+use aiko_webrtc::pipeline::{WebRtcVideoSink, WebRtcVideoSinkConfig};
 use aiko_webrtc::prelude::*;
 use aiko_webrtc::signaling::WsSignalingClient;
-use openh264::encoder::Encoder;
-use openh264::formats::YUVSlices;
+use async_trait::async_trait;
 use std::time::Duration;
 
-const WIDTH: usize = 640;
-const HEIGHT: usize = 480;
-const FPS: u64 = 30;
+const WIDTH: u32 = 640;
+const HEIGHT: u32 = 480;
+const FPS: u32 = 30;
 
 /// SMPTE color bars in (R, G, B).
 const BARS: [(u8, u8, u8); 8] = [
@@ -49,34 +54,82 @@ fn bar_yuv() -> [(u8, u8, u8); 8] {
     out
 }
 
-/// Generate YUV420 planes for one frame of scrolling SMPTE bars.
-fn generate_yuv420(frame: u64) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
-    let bar_width = WIDTH / 8;
-    let offset = (frame as usize * 2) % WIDTH;
+/// Pipeline source element that generates scrolling SMPTE color bars as I420 `VideoFrame`s.
+struct SmpteSource {
+    stream_id: StreamId,
+    frame_num: u64,
+    width: u32,
+    height: u32,
+    fps: u32,
+}
 
-    let yuv = bar_yuv();
-
-    let mut y_plane = vec![0u8; WIDTH * HEIGHT];
-    let mut u_plane = vec![128u8; (WIDTH / 2) * (HEIGHT / 2)];
-    let mut v_plane = vec![128u8; (WIDTH / 2) * (HEIGHT / 2)];
-
-    for row in 0..HEIGHT {
-        for col in 0..WIDTH {
-            let shifted = (col + offset) % WIDTH;
-            let bar = (shifted / bar_width).min(7);
-            let (yv, uv, vv) = yuv[bar];
-
-            y_plane[row * WIDTH + col] = yv;
-
-            if row % 2 == 0 && col % 2 == 0 {
-                let ci = (row / 2) * (WIDTH / 2) + (col / 2);
-                u_plane[ci] = uv;
-                v_plane[ci] = vv;
-            }
+impl SmpteSource {
+    fn new(width: u32, height: u32, fps: u32) -> Self {
+        Self {
+            stream_id: StreamId::new(),
+            frame_num: 0,
+            width,
+            height,
+            fps,
         }
     }
 
-    (y_plane, u_plane, v_plane)
+    /// Generate an I420 VideoFrame with scrolling SMPTE bars.
+    fn generate_frame(&self) -> VideoFrame {
+        let w = self.width as usize;
+        let h = self.height as usize;
+        let bar_width = w / 8;
+        let offset = (self.frame_num as usize * 2) % w;
+        let yuv = bar_yuv();
+
+        let mut data = vec![0u8; PixelFormat::I420.frame_size(self.width, self.height)];
+        let y_size = w * h;
+
+        for row in 0..h {
+            for col in 0..w {
+                let shifted = (col + offset) % w;
+                let bar = (shifted / bar_width).min(7);
+                let (yv, uv, vv) = yuv[bar];
+
+                data[row * w + col] = yv;
+
+                if row % 2 == 0 && col % 2 == 0 {
+                    let ci = (row / 2) * (w / 2) + (col / 2);
+                    data[y_size + ci] = uv;
+                    data[y_size + y_size / 4 + ci] = vv;
+                }
+            }
+        }
+
+        VideoFrame::from_raw(self.width, self.height, PixelFormat::I420, data)
+    }
+}
+
+#[async_trait]
+impl SourceElement for SmpteSource {
+    type Output = VideoFrame;
+    type Config = ();
+
+    fn name(&self) -> &str {
+        "SmpteSource"
+    }
+
+    async fn next(
+        &mut self,
+        _ctx: &mut ElementContext,
+    ) -> Result<Option<Frame<VideoFrame>>, ElementError> {
+        let video_frame = self.generate_frame();
+        let frame = Frame::new(self.stream_id, FrameId(self.frame_num), video_frame);
+
+        self.frame_num += 1;
+        if self.frame_num % (self.fps as u64 * 5) == 0 {
+            println!("SmpteSource: generated {} frames", self.frame_num);
+        }
+
+        // Pace to target fps
+        tokio::time::sleep(Duration::from_millis(1000 / self.fps as u64)).await;
+        Ok(Some(frame))
+    }
 }
 
 #[tokio::main]
@@ -93,13 +146,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (transport, event_loop) = WebRtcTransport::connect(config, signaling).await?;
 
     // Add H264 video track before negotiation
-    let track_config = LocalTrackConfig {
-        kind: MediaKind::Video,
-        codec_mime_type: "video/H264".to_string(),
-        id: "video0".to_string(),
-        stream_id: "aiko-video".to_string(),
-    };
-    let local_track = transport.add_local_track(track_config).await?;
+    let local_track = transport
+        .add_local_track(LocalTrackConfig::h264_video("video0", "aiko-video"))
+        .await?;
     println!("Added H264 video track");
 
     // Subscribe to events: one for logging, one for waiting on connection
@@ -138,42 +187,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Small delay so the media pipeline is fully ready
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Setup H264 encoder (detects dimensions from first YUVSource)
-    let mut encoder = Encoder::new()?;
+    // Build the pipeline: SmpteSource -> WebRtcVideoSink
+    let source = SmpteSource::new(WIDTH, HEIGHT, FPS);
+    let mut sink = WebRtcVideoSink::new(local_track);
+    sink.init(WebRtcVideoSinkConfig {
+        fps: FPS,
+        keyframe_interval_secs: 2,
+    })
+    .await?;
 
-    let frame_duration = Duration::from_millis(1000 / FPS);
-    let mut frame_num: u64 = 0;
-    let keyframe_interval = FPS * 2; // Force keyframe every 2 seconds
+    let mut source_impl = source;
+    let mut ctx = ElementContext::new("video_pipeline", "video_demo");
 
-    println!("Streaming SMPTE bars at {WIDTH}x{HEIGHT} @ {FPS}fps");
+    println!("Streaming SMPTE bars at {WIDTH}x{HEIGHT} @ {FPS}fps (using pipeline)");
 
     loop {
-        // Force periodic keyframes so the decoder can (re)sync
-        if frame_num > 0 && frame_num % keyframe_interval == 0 {
-            encoder.force_intra_frame();
-        }
-
-        let (y, u, v) = generate_yuv420(frame_num);
-        let yuv = YUVSlices::new(
-            (&y, &u, &v),
-            (WIDTH, HEIGHT),
-            (WIDTH, WIDTH / 2, WIDTH / 2),
-        );
-
-        let bitstream = encoder.encode(&yuv)?;
-        let h264_data = bitstream.to_vec();
-
-        if !h264_data.is_empty() {
-            if let Err(e) = local_track.write_sample(&h264_data, frame_duration).await {
-                eprintln!("write_sample error: {e}");
+        match source_impl.next(&mut ctx).await? {
+            Some(frame) => {
+                sink.consume(frame, &mut ctx).await?;
             }
+            None => break,
         }
-
-        frame_num += 1;
-        if frame_num % (FPS * 5) == 0 {
-            println!("Sent {frame_num} frames");
-        }
-
-        tokio::time::sleep(frame_duration).await;
     }
+
+    Ok(())
 }
