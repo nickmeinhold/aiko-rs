@@ -23,9 +23,11 @@ webrtc.workspace = true
 tokio-tungstenite.workspace = true
 url = "2"
 openh264 = { version = "0.9", optional = true }
+audiopus = { workspace = true, optional = true }
 
 [features]
 video = ["openh264"]
+audio = ["audiopus"]
 video-demo = ["video"]
 
 [[example]]

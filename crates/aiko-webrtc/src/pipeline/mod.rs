@@ -7,6 +7,7 @@
 //! # Feature flags
 //!
 //! - `video` — Enables [`WebRtcVideoSink`] and [`WebRtcVideoSource`] (requires `openh264`)
+//! - `audio` — Enables [`WebRtcAudioSink`] and [`WebRtcAudioSource`] (requires `audiopus` / libopus)
 
 #[cfg(feature = "video")]
 mod video_sink;
@@ -17,8 +18,20 @@ mod video_source;
 #[cfg(feature = "video")]
 mod h264;
 
+#[cfg(feature = "audio")]
+mod audio_sink;
+
+#[cfg(feature = "audio")]
+mod audio_source;
+
 #[cfg(feature = "video")]
 pub use video_sink::{WebRtcVideoSink, WebRtcVideoSinkConfig};
 
 #[cfg(feature = "video")]
 pub use video_source::WebRtcVideoSource;
+
+#[cfg(feature = "audio")]
+pub use audio_sink::{WebRtcAudioSink, WebRtcAudioSinkConfig};
+
+#[cfg(feature = "audio")]
+pub use audio_source::WebRtcAudioSource;

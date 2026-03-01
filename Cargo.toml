@@ -35,6 +35,9 @@ rumqttc = "0.24"
 webrtc = "0.14"
 tokio-tungstenite = "0.24"
 
+# Audio
+audiopus = "0.2"
+
 # Utilities
 thiserror = "1.0"
 tracing = "0.1"
