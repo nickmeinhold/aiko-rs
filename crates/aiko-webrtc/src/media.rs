@@ -48,6 +48,16 @@ impl LocalTrackConfig {
         }
     }
 
+    /// Create an H264 video track config (used by `WebRtcVideoSink` / `WebRtcVideoSource`).
+    pub fn h264_video(id: impl Into<String>, stream_id: impl Into<String>) -> Self {
+        Self {
+            kind: MediaKind::Video,
+            codec_mime_type: "video/H264".to_string(),
+            id: id.into(),
+            stream_id: stream_id.into(),
+        }
+    }
+
     /// Build the RTP codec capability for this track config.
     pub(crate) fn codec_capability(&self) -> RTCRtpCodecCapability {
         let (clock_rate, channels) = match self.kind {

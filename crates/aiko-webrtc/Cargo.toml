@@ -25,7 +25,8 @@ url = "2"
 openh264 = { version = "0.9", optional = true }
 
 [features]
-video-demo = ["openh264"]
+video = ["openh264"]
+video-demo = ["video"]
 
 [[example]]
 name = "data_channel"

@@ -39,6 +39,8 @@ pub mod data_channel;
 pub mod error;
 pub mod media;
 pub mod peer;
+#[cfg(feature = "video")]
+pub mod pipeline;
 pub mod signaling;
 pub mod transport;
 
