@@ -71,7 +71,10 @@ pub enum SystemMessage {
     Started { actor_id: ActorId, name: String },
 
     /// Actor has stopped.
-    Stopped { actor_id: ActorId, reason: StopReason },
+    Stopped {
+        actor_id: ActorId,
+        reason: StopReason,
+    },
 
     /// Actor encountered an error.
     Error { actor_id: ActorId, error: String },

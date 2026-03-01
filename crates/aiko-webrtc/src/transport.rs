@@ -119,33 +119,32 @@ impl WebRtcTransport {
             let channels = channels.clone();
             let message_tx = message_tx.clone();
             let event_tx = event_tx.clone();
-            peer.connection()
-                .on_data_channel(Box::new(move |dc| {
-                    let channels = channels.clone();
-                    let message_tx = message_tx.clone();
-                    let event_tx = event_tx.clone();
-                    Box::pin(async move {
-                        let label = dc.label().to_string();
-                        let dc_ref = dc.clone();
-                        let label_for_handler = label.clone();
-                        let message_tx_for_handler = message_tx.clone();
+            peer.connection().on_data_channel(Box::new(move |dc| {
+                let channels = channels.clone();
+                let message_tx = message_tx.clone();
+                let event_tx = event_tx.clone();
+                Box::pin(async move {
+                    let label = dc.label().to_string();
+                    let dc_ref = dc.clone();
+                    let label_for_handler = label.clone();
+                    let message_tx_for_handler = message_tx.clone();
 
-                        dc.on_message(Box::new(move |msg| {
-                            let label = label_for_handler.clone();
-                            let message_tx = message_tx_for_handler.clone();
-                            Box::pin(async move {
-                                let incoming = IncomingMessage {
-                                    channel: label,
-                                    payload: msg.data.to_vec(),
-                                };
-                                let _ = message_tx.send(incoming);
-                            })
-                        }));
+                    dc.on_message(Box::new(move |msg| {
+                        let label = label_for_handler.clone();
+                        let message_tx = message_tx_for_handler.clone();
+                        Box::pin(async move {
+                            let incoming = IncomingMessage {
+                                channel: label,
+                                payload: msg.data.to_vec(),
+                            };
+                            let _ = message_tx.send(incoming);
+                        })
+                    }));
 
-                        let _ = event_tx.send(PeerEvent::DataChannelOpened(label.clone()));
-                        channels.insert(label, dc_ref);
-                    })
-                }));
+                    let _ = event_tx.send(PeerEvent::DataChannelOpened(label.clone()));
+                    channels.insert(label, dc_ref);
+                })
+            }));
         }
 
         // Handle incoming remote tracks

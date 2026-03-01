@@ -110,7 +110,8 @@ pub struct MqttTransport {
 impl MqttTransport {
     /// Create a new MQTT transport and start the event loop.
     pub async fn connect(config: MqttConfig) -> Result<(Self, MqttEventLoop), MqttError> {
-        let mut options = MqttOptions::new(&config.client_id, &config.broker_host, config.broker_port);
+        let mut options =
+            MqttOptions::new(&config.client_id, &config.broker_host, config.broker_port);
         options.set_keep_alive(Duration::from_secs(config.keep_alive_secs));
         options.set_clean_session(config.clean_session);
 

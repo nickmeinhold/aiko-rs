@@ -176,15 +176,11 @@ mod tests {
     fn test_topic_matcher() {
         let matcher = TopicMatcher::new("test");
 
-        let parsed = matcher
-            .parse("aiko/test/services/node1/status")
-            .unwrap();
+        let parsed = matcher.parse("aiko/test/services/node1/status").unwrap();
         assert_eq!(parsed.kind, TopicKind::ServiceStatus);
         assert_eq!(parsed.id, "node1");
 
-        let parsed = matcher
-            .parse("aiko/test/pipelines/p1/frames")
-            .unwrap();
+        let parsed = matcher.parse("aiko/test/pipelines/p1/frames").unwrap();
         assert_eq!(parsed.kind, TopicKind::PipelineFrames);
         assert_eq!(parsed.id, "p1");
 

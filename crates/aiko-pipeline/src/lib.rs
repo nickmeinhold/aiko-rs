@@ -44,8 +44,8 @@ pub mod executor;
 /// Convenient re-exports of commonly used types.
 pub mod prelude {
     pub use crate::builder::{
-        InputPipeline, InputPipelineBuilder, OpenPipeline, Pipeline, PipelineBuilder,
-        SourcedPipeline, SourcedPipelineBuilder, ErasedElement,
+        ErasedElement, InputPipeline, InputPipelineBuilder, OpenPipeline, Pipeline,
+        PipelineBuilder, SourcedPipeline, SourcedPipelineBuilder,
     };
     pub use crate::executor::{ElementActor, SinkActor, SourceActor, SyncExecutor};
 }

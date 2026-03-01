@@ -36,9 +36,7 @@ fn signaling_pair() -> (ChannelSignalingClient, ChannelSignalingClient) {
 #[async_trait]
 impl SignalingClient for ChannelSignalingClient {
     async fn send(&self, msg: SignalingMessage) -> aiko_webrtc::error::Result<()> {
-        self.tx
-            .send(msg)
-            .map_err(|_| WebRtcError::ChannelClosed)
+        self.tx.send(msg).map_err(|_| WebRtcError::ChannelClosed)
     }
 
     async fn recv(&self) -> aiko_webrtc::error::Result<SignalingMessage> {

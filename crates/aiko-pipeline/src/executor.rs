@@ -128,7 +128,10 @@ pub struct ElementActor<E: Element> {
 
 impl<E: Element> ElementActor<E> {
     pub fn new(element: E, next_actor: Option<ActorRef>) -> Self {
-        Self { element, next_actor }
+        Self {
+            element,
+            next_actor,
+        }
     }
 }
 

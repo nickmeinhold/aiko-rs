@@ -322,7 +322,10 @@ mod tests {
             "test_source"
         }
 
-        async fn next(&mut self, _: &mut ElementContext) -> Result<Option<Frame<i32>>, ElementError> {
+        async fn next(
+            &mut self,
+            _: &mut ElementContext,
+        ) -> Result<Option<Frame<i32>>, ElementError> {
             Ok(Some(Frame::new(StreamId::new(), FrameId(0), 42)))
         }
     }
@@ -339,7 +342,11 @@ mod tests {
             "test_sink"
         }
 
-        async fn consume(&mut self, _: Frame<String>, _: &mut ElementContext) -> Result<(), ElementError> {
+        async fn consume(
+            &mut self,
+            _: Frame<String>,
+            _: &mut ElementContext,
+        ) -> Result<(), ElementError> {
             Ok(())
         }
     }
@@ -363,7 +370,10 @@ mod tests {
             .sink(TestSink);
 
         assert_eq!(pipeline.name(), "test");
-        assert_eq!(pipeline.element_names(), vec!["double", "to_string", "test_sink"]);
+        assert_eq!(
+            pipeline.element_names(),
+            vec!["double", "to_string", "test_sink"]
+        );
     }
 
     // This test demonstrates compile-time type safety.
