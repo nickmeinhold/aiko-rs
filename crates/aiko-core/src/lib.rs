@@ -21,6 +21,7 @@
 //! assert_eq!(upper.payload, "HELLO WORLD");
 //! ```
 
+pub mod codec;
 pub mod element;
 pub mod error;
 pub mod frame;
@@ -28,6 +29,7 @@ pub mod message;
 
 /// Convenient re-exports of commonly used types.
 pub mod prelude {
+    pub use crate::codec::{CodecError, FrameEnvelope, NetworkSerializable};
     pub use crate::element::{
         Element, ElementConfig, ElementContext, FilterElement, MapElement, PassThrough,
         PipelineData, SinkElement, SourceElement,
