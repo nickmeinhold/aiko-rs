@@ -81,11 +81,7 @@ pub struct LocalTrack {
 
 impl LocalTrack {
     /// Write a pre-encoded media sample to the track.
-    pub async fn write_sample(
-        &self,
-        data: &[u8],
-        duration: Duration,
-    ) -> crate::error::Result<()> {
+    pub async fn write_sample(&self, data: &[u8], duration: Duration) -> crate::error::Result<()> {
         use webrtc::media::Sample;
 
         self.track

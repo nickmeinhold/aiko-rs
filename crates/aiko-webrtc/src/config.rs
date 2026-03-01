@@ -91,4 +91,42 @@ impl WebRtcConfig {
         self.ordered_channels = ordered;
         self
     }
+
+    /// Add a STUN server.
+    ///
+    /// STUN servers help peers discover their public IP addresses for NAT traversal.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use aiko_webrtc::config::WebRtcConfig;
+    /// let config = WebRtcConfig::new()
+    ///     .with_stun("stun:stun.l.google.com:19302");
+    /// ```
+    pub fn with_stun(self, url: impl Into<String>) -> Self {
+        self.with_ice_server(IceServer::stun(url))
+    }
+
+    /// Add a TURN server with credentials.
+    ///
+    /// TURN servers relay traffic when direct peer-to-peer is not possible
+    /// (e.g., behind symmetric NATs or restrictive firewalls).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use aiko_webrtc::config::WebRtcConfig;
+    /// let config = WebRtcConfig::new()
+    ///     .with_turn("turn:turn.example.com:3478", "user", "pass");
+    /// ```
+    pub fn with_turn(
+        self,
+        url: impl Into<String>,
+        username: impl Into<String>,
+        credential: impl Into<String>,
+    ) -> Self {
+        self.with_ice_server(
+            IceServer::new(vec![url.into()]).with_credentials(username, credential),
+        )
+    }
 }

@@ -14,8 +14,20 @@ pub enum WebRtcError {
     #[error("Codec error: {0}")]
     Codec(#[from] crate::codec::CodecError),
 
+    #[error("Encoding error: {0}")]
+    Encoding(String),
+
+    #[error("Decoding error: {0}")]
+    Decoding(String),
+
+    #[error("Track error: {0}")]
+    Track(String),
+
     #[error("Data channel error: {0}")]
     DataChannel(String),
+
+    #[error("Operation timed out: {0}")]
+    Timeout(String),
 
     #[error("Channel closed")]
     ChannelClosed,

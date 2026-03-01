@@ -11,6 +11,9 @@ pub enum ElementError {
     #[error("Configuration error: {0}")]
     Configuration(String),
 
+    #[error("Codec error: {0}")]
+    Codec(String),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 

@@ -125,10 +125,10 @@ impl SourceElement for WebRtcAudioSource {
                 }
             };
 
-            self.decoder = Some(Mutex::new(
-                Decoder::new(sr, ch)
-                    .map_err(|e| ElementError::Processing(format!("Opus decoder init: {e}")))?,
-            ));
+            self.decoder =
+                Some(Mutex::new(Decoder::new(sr, ch).map_err(|e| {
+                    ElementError::Processing(format!("Opus decoder init: {e}"))
+                })?));
             debug!(
                 "Opus decoder initialized: {}Hz, {} channels",
                 self.sample_rate, self.channels

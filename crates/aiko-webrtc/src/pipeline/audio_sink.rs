@@ -131,10 +131,10 @@ impl SinkElement for WebRtcAudioSink {
             OpusApplication::LowDelay => Application::LowDelay,
         };
 
-        self.encoder = Some(Mutex::new(
-            Encoder::new(sr, ch, app)
-                .map_err(|e| ElementError::Processing(format!("Opus encoder init: {e}")))?,
-        ));
+        self.encoder =
+            Some(Mutex::new(Encoder::new(sr, ch, app).map_err(|e| {
+                ElementError::Processing(format!("Opus encoder init: {e}"))
+            })?));
 
         debug!(
             "WebRtcAudioSink initialized: {}Hz, {} channels, {:?}",
@@ -191,7 +191,11 @@ impl SinkElement for WebRtcAudioSink {
                 .write_sample(&self.opus_output_buf[..encoded_len], duration)
                 .await
                 .map_err(|e| ElementError::Processing(format!("write_sample: {e}")))?;
-            trace!("Encoded {} bytes Opus at frame {}", encoded_len, self.frame_count);
+            trace!(
+                "Encoded {} bytes Opus at frame {}",
+                encoded_len,
+                self.frame_count
+            );
         }
 
         self.frame_count += 1;
@@ -199,7 +203,10 @@ impl SinkElement for WebRtcAudioSink {
     }
 
     async fn shutdown(&mut self) -> Result<(), ElementError> {
-        debug!("WebRtcAudioSink shutting down after {} frames", self.frame_count);
+        debug!(
+            "WebRtcAudioSink shutting down after {} frames",
+            self.frame_count
+        );
         self.encoder = None;
         Ok(())
     }

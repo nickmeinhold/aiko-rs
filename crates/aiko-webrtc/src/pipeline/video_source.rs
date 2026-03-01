@@ -92,9 +92,8 @@ impl SourceElement for WebRtcVideoSource {
         // Lazy-init decoder
         if self.decoder.is_none() {
             self.decoder = Some(
-                Decoder::new().map_err(|e| {
-                    ElementError::Processing(format!("H264 decoder init: {e}"))
-                })?,
+                Decoder::new()
+                    .map_err(|e| ElementError::Processing(format!("H264 decoder init: {e}")))?,
             );
             debug!("H264 decoder initialized");
         }

@@ -42,11 +42,8 @@ mod tests {
 
     #[test]
     fn test_frame_envelope_roundtrip() {
-        let frame = aiko_core::frame::Frame::new(
-            StreamId::new(),
-            FrameId(42),
-            "hello world".to_string(),
-        );
+        let frame =
+            aiko_core::frame::Frame::new(StreamId::new(), FrameId(42), "hello world".to_string());
 
         let envelope = FrameEnvelope::from_frame(frame).unwrap();
         assert_eq!(envelope.payload_type, "string");

@@ -197,7 +197,7 @@ mod tests {
         // First NALU: 2 bytes
         payload.extend_from_slice(&[0x00, 0x02]); // size = 2
         payload.extend_from_slice(&[0x67, 0x42]); // SPS (type=7)
-        // Second NALU: 2 bytes
+                                                  // Second NALU: 2 bytes
         payload.extend_from_slice(&[0x00, 0x02]); // size = 2
         payload.extend_from_slice(&[0x68, 0xCE]); // PPS (type=8)
 

@@ -41,6 +41,7 @@ pub mod media;
 pub mod peer;
 #[cfg(any(feature = "video", feature = "audio"))]
 pub mod pipeline;
+pub mod reconnect;
 pub mod signaling;
 pub mod transport;
 

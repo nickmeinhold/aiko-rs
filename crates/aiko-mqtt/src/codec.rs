@@ -176,7 +176,12 @@ mod tests {
     #[test]
     fn test_detections() {
         let mut detections = Detections::empty();
-        detections.add(BoundingBox::new(100.0, 100.0, 50.0, 80.0), 0.95, 0, "person");
+        detections.add(
+            BoundingBox::new(100.0, 100.0, 50.0, 80.0),
+            0.95,
+            0,
+            "person",
+        );
 
         assert_eq!(detections.len(), 1);
         assert_eq!(detections.class_names[0], "person");

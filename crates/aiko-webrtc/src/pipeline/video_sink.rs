@@ -100,7 +100,8 @@ impl SinkElement for WebRtcVideoSink {
         // Lazy-init encoder on first frame (openh264 detects dimensions from YUVSource)
         if self.encoder.is_none() {
             self.encoder = Some(
-                Encoder::new().map_err(|e| ElementError::Processing(format!("H264 encoder init: {e}")))?,
+                Encoder::new()
+                    .map_err(|e| ElementError::Processing(format!("H264 encoder init: {e}")))?,
             );
             debug!(
                 "H264 encoder initialized for {}x{} {:?}",
@@ -148,7 +149,10 @@ impl SinkElement for WebRtcVideoSink {
     }
 
     async fn shutdown(&mut self) -> Result<(), ElementError> {
-        debug!("WebRtcVideoSink shutting down after {} frames", self.frame_count);
+        debug!(
+            "WebRtcVideoSink shutting down after {} frames",
+            self.frame_count
+        );
         self.encoder = None;
         Ok(())
     }
@@ -181,10 +185,6 @@ mod tests {
         assert_eq!(v.len(), 320 * 240);
 
         // Verify YUVSlices can be constructed (this is what the encoder expects)
-        let _yuv = YUVSlices::new(
-            (y, u, v),
-            (640, 480),
-            (640, 320, 320),
-        );
+        let _yuv = YUVSlices::new((y, u, v), (640, 480), (640, 320, 320));
     }
 }
