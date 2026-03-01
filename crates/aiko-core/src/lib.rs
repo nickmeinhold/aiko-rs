@@ -25,6 +25,7 @@ pub mod codec;
 pub mod element;
 pub mod error;
 pub mod frame;
+pub mod media;
 pub mod message;
 
 /// Convenient re-exports of commonly used types.
@@ -36,5 +37,6 @@ pub mod prelude {
     };
     pub use crate::error::{ActorError, ElementError, PipelineError};
     pub use crate::frame::{AnyFrame, Frame, FrameId, FrameMetadata, StreamId};
+    pub use crate::media::{AudioFrame, PixelFormat, SampleFormat, VideoFrame};
     pub use crate::message::{ActorId, ActorMessage, ControlMessage, StopReason, SystemMessage};
 }
