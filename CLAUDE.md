@@ -68,11 +68,11 @@ cargo fmt --all
 
 ### Adding New Data Types for MQTT / WebRTC
 
-1. Define the type in the transport's `codec.rs` (`aiko-mqtt/src/codec.rs` or `aiko-webrtc/src/codec.rs`)
+1. Define the type in `aiko-core/src/codec.rs` (shared types) or the transport's `codec.rs` (transport-specific)
 2. Implement `NetworkSerializable` trait with a unique type name
 3. Derive `Serialize` and `Deserialize`
 
-> **Note:** `NetworkSerializable` and `FrameEnvelope` are currently duplicated between `aiko-mqtt` and `aiko-webrtc` to avoid cross-transport dependency. A future refactor could move these to `aiko-core`.
+> **Note:** `NetworkSerializable` and `FrameEnvelope` live in `aiko-core/src/codec.rs` and are re-exported by both `aiko-mqtt` and `aiko-webrtc`. ML-specific types (ImageData, Detections) remain in `aiko-mqtt/src/codec.rs`. Media types (`VideoFrame`, `AudioFrame`) live in `aiko-core/src/media.rs`.
 
 ### Pipeline Patterns
 
@@ -101,29 +101,23 @@ Pipeline::new("name")
 ### What's Working
 
 - **Core framework**: Frame types, Element/Source/Sink traits, type-state pipeline builder, actor system — all functional with compile-time type safety
+- **Shared codec layer**: `NetworkSerializable`, `FrameEnvelope`, and `CodecError` live in `aiko-core` and are re-exported by both transport crates
+- **Media types**: `VideoFrame` (I420/RGB/RGBA/Gray) and `AudioFrame` (I16Le/F32Le) in `aiko-core::media` with `NetworkSerializable` impls
 - **MQTT transport**: Publish/subscribe with typed frame serialization over MQTT
 - **WebRTC data channels**: Full peer-to-peer data channel communication with pluggable signaling (WebSocket impl provided), e2e tested
 - **WebRTC media tracks**: H264 video streaming from Rust to browser, verified with a live demo (SMPTE color bars at 640x480/30fps encoded with `openh264`)
-- **Video demo**: Three-component demo (signaling server + Rust peer + browser page) that shows browser camera alongside Rust-generated video
+- **Pipeline ↔ WebRTC integration**: `WebRtcVideoSink` and `WebRtcVideoSource` bridge pipelines to WebRTC tracks (behind `video` feature)
+- **Audio pipeline elements**: `WebRtcAudioSink` and `WebRtcAudioSource` with Opus encoding/decoding (behind `audio` feature)
+- **Reconnection**: `ReconnectStrategy` with exponential backoff support
+- **STUN/TURN helpers**: `WebRtcConfig::with_stun()` and `with_turn()` builder methods
+- **Video demo**: Uses pipeline pattern — `SmpteSource` → `WebRtcVideoSink`
 
 ### What's Next
 
-1. **Pipeline ↔ WebRTC integration** — The pipeline system and WebRTC transport are currently separate. Create `WebRtcVideoSource` / `WebRtcVideoSink` elements so WebRTC streams can be pipeline stages:
-   ```rust
-   Pipeline::new("video")
-       .source(WebRtcVideoSource::new(config))
-       .then(MyVideoTransform)
-       .sink(WebRtcVideoSink::new(config));
-   ```
-   This is the most important architectural gap — connecting the two halves of the system.
-
-2. **Incoming video processing** — The browser sends camera frames to Rust but they're currently ignored. Decode them (H264 via `openh264::Decoder`) and feed them into a pipeline for processing.
-
-3. **Audio support** — The media track plumbing already handles `MediaKind::Audio` with clock_rate 48000. Add Opus encoding/decoding to enable audio pipelines.
-
-4. **Move `NetworkSerializable` to `aiko-core`** — Currently duplicated between `aiko-mqtt` and `aiko-webrtc`. Moving to core would let both transports share the codec abstraction.
-
-5. **Robustness** — Reconnection logic, graceful shutdown, error handling for codec negotiation failures, proper STUN/TURN configuration.
+1. **End-to-end video pipeline test** — Wire `WebRtcVideoSink` and `WebRtcVideoSource` together in a two-peer test that encodes → transmits → receives → decodes a known frame.
+2. **End-to-end audio pipeline test** — Same for `WebRtcAudioSink` → `WebRtcAudioSource` with Opus.
+3. **Integrate reconnection into transport** — Currently `ReconnectStrategy` exists as a standalone module; integrate it into `WebRtcEventLoop` to auto-reconnect on `Disconnected`/`Failed`.
+4. **Bidirectional video demo** — The browser sends camera frames to Rust but they're currently ignored. Feed inbound H264 through `WebRtcVideoSource` into a processing pipeline.
 
 ### Running the Video Demo
 
@@ -142,12 +136,21 @@ cargo run -p aiko-webrtc --example video_demo --features video-demo
 
 - Core traits: `crates/aiko-core/src/element.rs`
 - Frame types: `crates/aiko-core/src/frame.rs`
+- Codec types: `crates/aiko-core/src/codec.rs`
+- Media types: `crates/aiko-core/src/media.rs`
 - Actor system: `crates/aiko-actor/src/actor.rs`
 - Pipeline builder: `crates/aiko-pipeline/src/builder.rs`
 - MQTT client: `crates/aiko-mqtt/src/client.rs`
 - WebRTC transport: `crates/aiko-webrtc/src/transport.rs`
 - WebRTC signaling: `crates/aiko-webrtc/src/signaling.rs`
 - WebRTC peer management: `crates/aiko-webrtc/src/peer.rs`
+- WebRTC pipeline elements: `crates/aiko-webrtc/src/pipeline/`
+  - Video sink: `pipeline/video_sink.rs`
+  - Video source: `pipeline/video_source.rs`
+  - H264 depacketizer: `pipeline/h264.rs`
+  - Audio sink: `pipeline/audio_sink.rs`
+  - Audio source: `pipeline/audio_source.rs`
+- Reconnection: `crates/aiko-webrtc/src/reconnect.rs`
 - Pipeline example: `crates/aiko-pipeline/examples/simple_pipeline.rs`
 - WebRTC example: `crates/aiko-webrtc/examples/data_channel.rs`
 - Video demo: `crates/aiko-webrtc/examples/video_demo.rs`
@@ -156,12 +159,21 @@ cargo run -p aiko-webrtc --example video_demo --features video-demo
 
 ## Testing
 
-Each crate has unit tests. Key test files:
+Each crate has unit tests. Run all with: `cargo test --workspace --features "video,audio"`
+
+Key test files:
 - `aiko-core/src/frame.rs` - Frame creation and type erasure
+- `aiko-core/src/codec.rs` - FrameEnvelope roundtrips, type mismatch errors
+- `aiko-core/src/media.rs` - VideoFrame/AudioFrame construction, I420 planes, serialization
 - `aiko-actor/src/registry.rs` - Actor registration
-- `aiko-mqtt/src/codec.rs` - Serialization roundtrips
+- `aiko-mqtt/src/codec.rs` - ML types, serialization roundtrips
 - `aiko-pipeline/src/builder.rs` - Pipeline construction
 - `aiko-webrtc/src/codec.rs` - Frame envelope roundtrips, audio sample
+- `aiko-webrtc/src/pipeline/h264.rs` - H264 depacketization (Single NAL, FU-A, STAP-A)
+- `aiko-webrtc/src/pipeline/video_sink.rs` - Config, I420 frame encoding prep
+- `aiko-webrtc/src/pipeline/audio_sink.rs` - Opus encode, config validation, byte casting
+- `aiko-webrtc/src/pipeline/audio_source.rs` - Opus encode/decode roundtrip
+- `aiko-webrtc/src/reconnect.rs` - Backoff strategy, attempt tracking, reset
 - `aiko-webrtc/tests/e2e.rs` - Full data channel roundtrip (in-process signaling)
 
 ## WebRTC Media Gotchas
@@ -182,5 +194,8 @@ These are easy to hit when working on media tracks:
 - WebRTC uses the pure-Rust `webrtc` crate (v0.14)
 - WebRTC signaling is pluggable via the `SignalingClient` trait (built-in WebSocket impl provided)
 - WebRTC data channels map to MQTT topics conceptually — named channels replace named topics
+- H264 encoding/decoding uses `openh264` (v0.9), which bundles its own codec — no system dependency
+- Opus encoding/decoding uses `audiopus` (v0.2), which requires `libopus` (`brew install opus` on macOS)
+- `audiopus::Encoder` and `Decoder` are `!Sync` (raw C pointers), so pipeline elements wrap them in `Mutex` to satisfy the `SinkElement: Sync` bound. This is uncontended because elements always have exclusive `&mut self` access.
 - All elements run as separate actors for concurrency
 - Frame metadata includes nanosecond timestamps
