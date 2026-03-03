@@ -1,8 +1,8 @@
-//! WebRTC video demo — Rust peer sends H264 SMPTE color bars via pipeline.
+//! WebRTC bidirectional video demo — Rust peer sends and receives video via pipelines.
 //!
 //! Demonstrates the pipeline ↔ WebRTC integration:
-//! - `SmpteSource` generates I420 `VideoFrame`s with scrolling color bars
-//! - `WebRtcVideoSink` encodes them to H264 and sends via WebRTC
+//! - **Outbound**: `SmpteSource` → `WebRtcVideoSink` (H264 SMPTE bars sent to browser)
+//! - **Inbound**: `WebRtcVideoSource` decodes browser camera frames and logs dimensions
 //!
 //! # Prerequisites
 //!
@@ -11,13 +11,17 @@
 //! 2. Start this peer:
 //!    `cargo run -p aiko-webrtc --example video_demo --features video-demo`
 //! 3. Open `crates/aiko-webrtc/examples/video_demo.html` in a browser.
+//!
+//! The browser sends its camera feed to Rust. If the browser negotiates H264, decoded
+//! frame dimensions are logged. If it negotiates VP8 instead, decode will fail silently
+//! (warnings logged) since `WebRtcVideoSource` only supports H264.
 
 use aiko_core::element::{ElementContext, SinkElement, SourceElement};
 use aiko_core::error::ElementError;
 use aiko_core::frame::{Frame, FrameId, StreamId};
 use aiko_core::media::{PixelFormat, VideoFrame};
 use aiko_webrtc::media::LocalTrackConfig;
-use aiko_webrtc::pipeline::{WebRtcVideoSink, WebRtcVideoSinkConfig};
+use aiko_webrtc::pipeline::{WebRtcVideoSink, WebRtcVideoSinkConfig, WebRtcVideoSource};
 use aiko_webrtc::prelude::*;
 use aiko_webrtc::signaling::WsSignalingClient;
 use async_trait::async_trait;
@@ -151,13 +155,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     println!("Added H264 video track");
 
-    // Subscribe to events: one for logging, one for waiting on connection
+    // Subscribe to events: one for logging + track forwarding, one for waiting on connection
     let mut log_events = transport.subscribe_events();
     let mut conn_events = transport.subscribe_events();
+
+    // Channel for delivering the browser's remote track to the inbound pipeline
+    let (track_tx, track_rx) = tokio::sync::mpsc::channel::<aiko_webrtc::media::RemoteTrack>(1);
 
     tokio::spawn(async move {
         while let Ok(event) = log_events.recv().await {
             println!("Event: {event:?}");
+            if let PeerEvent::TrackAdded(remote_track) = event {
+                println!("Inbound: received remote video track from browser");
+                let _ = track_tx.send(remote_track).await;
+            }
         }
     });
 
@@ -187,7 +198,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Small delay so the media pipeline is fully ready
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Build the pipeline: SmpteSource -> WebRtcVideoSink
+    // --- Inbound pipeline: browser camera → WebRtcVideoSource → log ---
+    tokio::spawn(async move {
+        let mut source = WebRtcVideoSource::new(track_rx);
+        let mut ctx = ElementContext::new("inbound_pipeline", "video_demo");
+        let mut frame_count = 0u64;
+
+        loop {
+            match source.next(&mut ctx).await {
+                Ok(Some(frame)) => {
+                    frame_count += 1;
+                    // Log first frame immediately, then every 30 frames
+                    if frame_count == 1 || frame_count % 30 == 0 {
+                        println!(
+                            "Inbound: frame #{} — {}x{}",
+                            frame_count, frame.payload.width, frame.payload.height
+                        );
+                    }
+                }
+                Ok(None) => {
+                    println!("Inbound: video source ended");
+                    break;
+                }
+                Err(e) => {
+                    eprintln!("Inbound: video source error: {e}");
+                    break;
+                }
+            }
+        }
+    });
+
+    // Build the outbound pipeline: SmpteSource -> WebRtcVideoSink
     let source = SmpteSource::new(WIDTH, HEIGHT, FPS);
     let mut sink = WebRtcVideoSink::new(local_track);
     sink.init(WebRtcVideoSinkConfig {
@@ -199,7 +240,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut source_impl = source;
     let mut ctx = ElementContext::new("video_pipeline", "video_demo");
 
-    println!("Streaming SMPTE bars at {WIDTH}x{HEIGHT} @ {FPS}fps (using pipeline)");
+    println!("Outbound: streaming SMPTE bars at {WIDTH}x{HEIGHT} @ {FPS}fps");
 
     loop {
         match source_impl.next(&mut ctx).await? {
