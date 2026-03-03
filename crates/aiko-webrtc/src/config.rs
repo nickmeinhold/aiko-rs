@@ -1,5 +1,7 @@
 //! Configuration types for WebRTC transport.
 
+use crate::reconnect::ReconnectStrategy;
+
 /// ICE server configuration.
 #[derive(Debug, Clone)]
 pub struct IceServer {
@@ -50,6 +52,9 @@ pub struct WebRtcConfig {
     pub role: PeerRole,
     pub ice_servers: Vec<IceServer>,
     pub ordered_channels: bool,
+    /// Reconnection strategy for handling `Disconnected`/`Failed` states.
+    /// Defaults to `None` (no automatic reconnection).
+    pub reconnect_strategy: ReconnectStrategy,
 }
 
 impl Default for WebRtcConfig {
@@ -58,6 +63,7 @@ impl Default for WebRtcConfig {
             role: PeerRole::Offerer,
             ice_servers: vec![IceServer::stun("stun:stun.l.google.com:19302")],
             ordered_channels: true,
+            reconnect_strategy: ReconnectStrategy::None,
         }
     }
 }
@@ -89,6 +95,25 @@ impl WebRtcConfig {
     /// Set whether data channels should be ordered.
     pub fn with_ordered_channels(mut self, ordered: bool) -> Self {
         self.ordered_channels = ordered;
+        self
+    }
+
+    /// Set the reconnection strategy.
+    ///
+    /// When enabled, the event loop will automatically attempt ICE restarts
+    /// when the connection transitions to `Failed`, and will wait a grace
+    /// period before acting on `Disconnected` (which is often transient).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use aiko_webrtc::config::WebRtcConfig;
+    /// # use aiko_webrtc::reconnect::ReconnectStrategy;
+    /// let config = WebRtcConfig::new()
+    ///     .with_reconnect(ReconnectStrategy::exponential_backoff());
+    /// ```
+    pub fn with_reconnect(mut self, strategy: ReconnectStrategy) -> Self {
+        self.reconnect_strategy = strategy;
         self
     }
 

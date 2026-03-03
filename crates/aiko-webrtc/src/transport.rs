@@ -15,17 +15,22 @@ use crate::data_channel::IncomingMessage;
 use crate::error::{Result, WebRtcError};
 use crate::media::{LocalTrack, LocalTrackConfig, RemoteTrack};
 use crate::peer::{ManagedPeer, PeerEvent, PeerState};
+use crate::reconnect::{ReconnectState, ReconnectStrategy};
 use crate::signaling::{SignalingClient, SignalingMessage};
 use bytes::Bytes;
 use dashmap::DashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
-use tracing::{debug, error, info};
+use tokio::time::Instant;
+use tracing::{debug, error, info, warn};
+use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
 use webrtc::api::APIBuilder;
 use webrtc::data_channel::RTCDataChannel;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 use webrtc::ice_transport::ice_server::RTCIceServer;
+use webrtc::interceptor::registry::Registry;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSample;
@@ -49,11 +54,19 @@ impl WebRtcTransport {
         config: WebRtcConfig,
         signaling: Box<dyn SignalingClient>,
     ) -> Result<(Self, WebRtcEventLoop)> {
-        // Build WebRTC API
+        // Build WebRTC API with the default interceptor registry.
+        // Interceptors (NACK, RTCP reports, TWCC) are required for media tracks —
+        // without them, read_rtp() on remote tracks blocks indefinitely.
         let mut m = MediaEngine::default();
         m.register_default_codecs()?;
 
-        let api = APIBuilder::new().with_media_engine(m).build();
+        let mut registry = Registry::new();
+        registry = register_default_interceptors(registry, &mut m)?;
+
+        let api = APIBuilder::new()
+            .with_media_engine(m)
+            .with_interceptor_registry(registry)
+            .build();
 
         // Convert ICE servers
         let ice_servers: Vec<RTCIceServer> = config
@@ -172,6 +185,8 @@ impl WebRtcTransport {
             signaling,
             role: config.role,
             ice_rx,
+            reconnect_strategy: config.reconnect_strategy.clone(),
+            event_tx: event_tx.clone(),
         };
 
         Ok((transport, event_loop))
@@ -232,6 +247,9 @@ impl WebRtcTransport {
     }
 
     /// Add a local media track to the peer connection.
+    ///
+    /// Spawns a background task to drain RTCP packets from the RTP sender,
+    /// which is required by the `webrtc` crate to keep the RTP pipeline flowing.
     pub async fn add_local_track(&self, config: LocalTrackConfig) -> Result<LocalTrack> {
         let codec = config.codec_capability();
         let track = Arc::new(TrackLocalStaticSample::new(
@@ -240,10 +258,17 @@ impl WebRtcTransport {
             config.stream_id.clone(),
         ));
 
-        self.peer
+        let rtp_sender = self
+            .peer
             .connection()
             .add_track(Arc::clone(&track) as Arc<dyn TrackLocal + Send + Sync>)
             .await?;
+
+        // Drain RTCP from the sender — the webrtc crate requires this for RTP to flow
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 1500];
+            while rtp_sender.read(&mut buf).await.is_ok() {}
+        });
 
         Ok(LocalTrack { track, config })
     }
@@ -259,7 +284,7 @@ impl WebRtcTransport {
     }
 }
 
-/// WebRTC event loop — handles signaling and ICE candidate exchange.
+/// WebRTC event loop — handles signaling, ICE candidate exchange, and reconnection.
 ///
 /// Must be spawned as a task after creating the transport.
 pub struct WebRtcEventLoop {
@@ -267,24 +292,49 @@ pub struct WebRtcEventLoop {
     signaling: Box<dyn SignalingClient>,
     role: PeerRole,
     ice_rx: mpsc::UnboundedReceiver<RTCIceCandidateInit>,
+    reconnect_strategy: ReconnectStrategy,
+    event_tx: broadcast::Sender<PeerEvent>,
 }
+
+/// Grace period before treating `Disconnected` as a failure requiring reconnection.
+/// ICE may self-recover from brief network blips within this window.
+const DISCONNECT_GRACE_PERIOD: Duration = Duration::from_secs(5);
 
 impl WebRtcEventLoop {
     /// Run the event loop until the signaling channel closes.
-    pub async fn run(mut self) -> Result<()> {
-        // If offerer, create and send offer
-        if self.role == PeerRole::Offerer {
-            let offer = self.peer.create_offer().await?;
-            self.peer.set_local_description(offer.clone()).await?;
+    pub async fn run(self) -> Result<()> {
+        // Delegate to run_with_shutdown using a channel that never fires
+        let (_tx, rx) = tokio::sync::watch::channel(false);
+        self.run_with_shutdown(rx).await
+    }
 
-            self.signaling
-                .send(SignalingMessage::Offer { sdp: offer.sdp })
-                .await?;
-            info!("Sent SDP offer");
+    /// Run the event loop with a shutdown signal.
+    ///
+    /// Handles signaling exchange, ICE candidate trickle, and automatic reconnection
+    /// when a [`ReconnectStrategy`] is configured. On `Disconnected`, waits a 5-second
+    /// grace period (ICE may self-recover). On `Failed`, immediately attempts an ICE
+    /// restart by creating a new SDP offer.
+    pub async fn run_with_shutdown(
+        mut self,
+        mut shutdown: tokio::sync::watch::Receiver<bool>,
+    ) -> Result<()> {
+        if self.role == PeerRole::Offerer {
+            self.send_offer().await?;
         }
 
-        // Main signaling pump
+        let mut reconnect_state = ReconnectState::new(self.reconnect_strategy.clone());
+        let mut peer_events = self.event_tx.subscribe();
+        // Deadline for when a Disconnected grace period expires.
+        // When set, we're waiting to see if ICE self-recovers.
+        let mut disconnect_deadline: Option<Instant> = None;
+
         loop {
+            // Calculate how long to wait for the disconnect grace timer
+            let grace_timeout = match disconnect_deadline {
+                Some(deadline) => tokio::time::sleep_until(deadline),
+                None => tokio::time::sleep(Duration::from_secs(86400)), // effectively never
+            };
+
             tokio::select! {
                 Some(candidate) = self.ice_rx.recv() => {
                     self.signaling
@@ -343,74 +393,37 @@ impl WebRtcEventLoop {
                         }
                     }
                 }
-            }
-        }
 
-        Ok(())
-    }
-
-    /// Run the event loop with a shutdown signal.
-    pub async fn run_with_shutdown(
-        mut self,
-        mut shutdown: tokio::sync::watch::Receiver<bool>,
-    ) -> Result<()> {
-        if self.role == PeerRole::Offerer {
-            let offer = self.peer.create_offer().await?;
-            self.peer.set_local_description(offer.clone()).await?;
-
-            self.signaling
-                .send(SignalingMessage::Offer { sdp: offer.sdp })
-                .await?;
-            info!("Sent SDP offer");
-        }
-
-        loop {
-            tokio::select! {
-                Some(candidate) = self.ice_rx.recv() => {
-                    self.signaling
-                        .send(SignalingMessage::IceCandidate {
-                            candidate: candidate.candidate,
-                            sdp_mid: candidate.sdp_mid,
-                            sdp_mline_index: candidate.sdp_mline_index,
-                        })
-                        .await?;
+                // Handle peer state changes for reconnection
+                event = peer_events.recv() => {
+                    if let Ok(PeerEvent::StateChanged(state)) = event {
+                        match state {
+                            PeerState::Connected => {
+                                reconnect_state.reset();
+                                disconnect_deadline = None;
+                            }
+                            PeerState::Disconnected => {
+                                if disconnect_deadline.is_none() {
+                                    info!("Peer disconnected — starting {}s grace period",
+                                        DISCONNECT_GRACE_PERIOD.as_secs());
+                                    disconnect_deadline =
+                                        Some(Instant::now() + DISCONNECT_GRACE_PERIOD);
+                                }
+                            }
+                            PeerState::Failed => {
+                                disconnect_deadline = None;
+                                self.attempt_reconnect(&mut reconnect_state).await?;
+                            }
+                            _ => {}
+                        }
+                    }
                 }
 
-                msg = self.signaling.recv() => {
-                    match msg {
-                        Ok(SignalingMessage::Offer { sdp }) => {
-                            let offer = RTCSessionDescription::offer(sdp)
-                                .map_err(|e| WebRtcError::Signaling(e.to_string()))?;
-                            self.peer.set_remote_description(offer).await?;
-
-                            let answer = self.peer.create_answer().await?;
-                            self.peer.set_local_description(answer.clone()).await?;
-
-                            self.signaling
-                                .send(SignalingMessage::Answer { sdp: answer.sdp })
-                                .await?;
-                        }
-                        Ok(SignalingMessage::Answer { sdp }) => {
-                            let answer = RTCSessionDescription::answer(sdp)
-                                .map_err(|e| WebRtcError::Signaling(e.to_string()))?;
-                            self.peer.set_remote_description(answer).await?;
-                        }
-                        Ok(SignalingMessage::IceCandidate {
-                            candidate,
-                            sdp_mid,
-                            sdp_mline_index,
-                        }) => {
-                            let init = RTCIceCandidateInit {
-                                candidate,
-                                sdp_mid,
-                                sdp_mline_index,
-                                username_fragment: None,
-                            };
-                            self.peer.add_ice_candidate(init).await?;
-                        }
-                        Err(WebRtcError::ChannelClosed) => break,
-                        Err(e) => return Err(e),
-                    }
+                // Disconnect grace period expired — escalate to reconnection
+                _ = grace_timeout, if disconnect_deadline.is_some() => {
+                    warn!("Disconnect grace period expired — attempting reconnection");
+                    disconnect_deadline = None;
+                    self.attempt_reconnect(&mut reconnect_state).await?;
                 }
 
                 _ = shutdown.changed() => {
@@ -424,5 +437,50 @@ impl WebRtcEventLoop {
 
         self.peer.close().await?;
         Ok(())
+    }
+
+    /// Send the initial SDP offer (offerer role).
+    async fn send_offer(&self) -> Result<()> {
+        let offer = self.peer.create_offer().await?;
+        self.peer.set_local_description(offer.clone()).await?;
+        self.signaling
+            .send(SignalingMessage::Offer { sdp: offer.sdp })
+            .await?;
+        info!("Sent SDP offer");
+        Ok(())
+    }
+
+    /// Attempt an ICE restart via a new SDP offer.
+    ///
+    /// Emits `PeerEvent::Reconnecting` before the attempt and
+    /// `PeerEvent::ReconnectFailed` if all retries are exhausted.
+    async fn attempt_reconnect(&self, state: &mut ReconnectState) -> Result<()> {
+        if !state.should_retry() {
+            warn!("Reconnection attempts exhausted");
+            let _ = self.event_tx.send(PeerEvent::ReconnectFailed);
+            return Ok(());
+        }
+
+        // Wait for backoff period then advance the counter
+        state.wait_and_advance().await;
+
+        let attempt = state.attempt();
+        info!(attempt, "Attempting ICE restart");
+        let _ = self.event_tx.send(PeerEvent::Reconnecting { attempt });
+
+        // ICE restart: create a new offer on the existing peer connection.
+        // This triggers new ICE gathering while preserving tracks and channels.
+        match self.send_offer().await {
+            Ok(()) => {
+                debug!(attempt, "ICE restart offer sent successfully");
+                Ok(())
+            }
+            Err(e) => {
+                warn!(attempt, error = %e, "ICE restart offer failed");
+                // Don't propagate — the reconnect loop will try again on the next
+                // Failed/Disconnected event
+                Ok(())
+            }
+        }
     }
 }

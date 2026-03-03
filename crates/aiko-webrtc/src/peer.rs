@@ -46,6 +46,13 @@ pub enum PeerEvent {
     TrackAdded(RemoteTrack),
     /// An ICE candidate error occurred.
     IceCandidateError(String),
+    /// A reconnection attempt is starting.
+    Reconnecting {
+        /// The current attempt number (1-indexed).
+        attempt: u32,
+    },
+    /// All reconnection attempts have been exhausted.
+    ReconnectFailed,
 }
 
 /// Wrapper around `RTCPeerConnection` with state tracking.

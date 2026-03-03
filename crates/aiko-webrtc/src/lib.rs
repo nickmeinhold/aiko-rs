@@ -53,6 +53,7 @@ pub mod prelude {
     pub use crate::error::WebRtcError;
     pub use crate::media::{LocalTrack, LocalTrackConfig, MediaKind, RemoteTrack};
     pub use crate::peer::{PeerEvent, PeerState};
+    pub use crate::reconnect::ReconnectStrategy;
     pub use crate::signaling::{SignalingClient, SignalingMessage};
     pub use crate::transport::{WebRtcEventLoop, WebRtcTransport};
 }

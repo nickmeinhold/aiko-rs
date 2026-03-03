@@ -192,9 +192,7 @@ async fn test_audio_pipeline_roundtrip() {
 
         // --- Set up audio sink (offerer / encoder side) ---
         let mut sink = WebRtcAudioSink::new(local_track);
-        sink.init(WebRtcAudioSinkConfig::default())
-            .await
-            .unwrap();
+        sink.init(WebRtcAudioSinkConfig::default()).await.unwrap();
         let mut sink_ctx = ElementContext::new("WebRtcAudioSink", "test");
 
         // Generate silent 20ms stereo frames at 48kHz:
@@ -234,7 +232,10 @@ async fn test_audio_pipeline_roundtrip() {
         assert_eq!(decoded_audio.channels, 2);
         assert_eq!(decoded_audio.format, SampleFormat::I16Le);
         assert_eq!(decoded_audio.samples_per_channel(), samples_per_channel);
-        assert!(!decoded_audio.data.is_empty(), "Decoded audio data is empty");
+        assert!(
+            !decoded_audio.data.is_empty(),
+            "Decoded audio data is empty"
+        );
 
         // After lossy Opus encode/decode of silence, the RMS should be near zero.
         // Interpret decoded bytes as i16 samples and check RMS < 100.
@@ -243,8 +244,7 @@ async fn test_audio_pipeline_roundtrip() {
             .chunks_exact(2)
             .map(|c| i16::from_le_bytes([c[0], c[1]]))
             .collect();
-        let rms = (samples.iter().map(|&s| (s as f64).powi(2)).sum::<f64>()
-            / samples.len() as f64)
+        let rms = (samples.iter().map(|&s| (s as f64).powi(2)).sum::<f64>() / samples.len() as f64)
             .sqrt();
         assert!(
             rms < 100.0,
