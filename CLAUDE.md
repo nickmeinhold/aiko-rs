@@ -105,19 +105,12 @@ Pipeline::new("name")
 - **Media types**: `VideoFrame` (I420/RGB/RGBA/Gray) and `AudioFrame` (I16Le/F32Le) in `aiko-core::media` with `NetworkSerializable` impls
 - **MQTT transport**: Publish/subscribe with typed frame serialization over MQTT
 - **WebRTC data channels**: Full peer-to-peer data channel communication with pluggable signaling (WebSocket impl provided), e2e tested
-- **WebRTC media tracks**: H264 video streaming from Rust to browser, verified with a live demo (SMPTE color bars at 640x480/30fps encoded with `openh264`)
-- **Pipeline ↔ WebRTC integration**: `WebRtcVideoSink` and `WebRtcVideoSource` bridge pipelines to WebRTC tracks (behind `video` feature)
-- **Audio pipeline elements**: `WebRtcAudioSink` and `WebRtcAudioSource` with Opus encoding/decoding (behind `audio` feature)
-- **Reconnection**: `ReconnectStrategy` with exponential backoff support
+- **WebRTC media tracks**: H264 video streaming from Rust to browser, verified with a live demo (SMPTE color bars at 640x480/30fps encoded with `openh264`), and e2e tested in-process
+- **Pipeline ↔ WebRTC integration**: `WebRtcVideoSink` and `WebRtcVideoSource` bridge pipelines to WebRTC tracks (behind `video` feature), e2e tested with full encode → transmit → decode roundtrip
+- **Audio pipeline elements**: `WebRtcAudioSink` and `WebRtcAudioSource` with Opus encoding/decoding (behind `audio` feature), e2e tested with full encode → transmit → decode roundtrip
+- **Reconnection**: `ReconnectStrategy` with exponential backoff, integrated into `WebRtcEventLoop` — auto ICE restart on `Failed`, 5s grace period on `Disconnected`, `PeerEvent::Reconnecting`/`ReconnectFailed` events
 - **STUN/TURN helpers**: `WebRtcConfig::with_stun()` and `with_turn()` builder methods
-- **Video demo**: Uses pipeline pattern — `SmpteSource` → `WebRtcVideoSink`
-
-### What's Next
-
-1. **End-to-end video pipeline test** — Wire `WebRtcVideoSink` and `WebRtcVideoSource` together in a two-peer test that encodes → transmits → receives → decodes a known frame.
-2. **End-to-end audio pipeline test** — Same for `WebRtcAudioSink` → `WebRtcAudioSource` with Opus.
-3. **Integrate reconnection into transport** — Currently `ReconnectStrategy` exists as a standalone module; integrate it into `WebRtcEventLoop` to auto-reconnect on `Disconnected`/`Failed`.
-4. **Bidirectional video demo** — The browser sends camera frames to Rust but they're currently ignored. Feed inbound H264 through `WebRtcVideoSource` into a processing pipeline.
+- **Bidirectional video demo**: Outbound SMPTE bars via `WebRtcVideoSink` + inbound browser camera via `WebRtcVideoSource` with frame logging
 
 ### Running the Video Demo
 
@@ -174,7 +167,7 @@ Key test files:
 - `aiko-webrtc/src/pipeline/audio_sink.rs` - Opus encode, config validation, byte casting
 - `aiko-webrtc/src/pipeline/audio_source.rs` - Opus encode/decode roundtrip
 - `aiko-webrtc/src/reconnect.rs` - Backoff strategy, attempt tracking, reset
-- `aiko-webrtc/tests/e2e.rs` - Full data channel roundtrip (in-process signaling)
+- `aiko-webrtc/tests/e2e.rs` - Full data channel roundtrip + video pipeline roundtrip (in-process signaling)
 
 ## WebRTC Media Gotchas
 
@@ -184,6 +177,10 @@ These are easy to hit when working on media tracks:
 - **Don't encode before connection** — Wait for `PeerEvent::StateChanged(PeerState::Connected)` before sending frames. The browser's H264 decoder needs the initial keyframe (IDR + SPS/PPS); if you start encoding early, the keyframe is sent into the void and the browser shows black.
 - **Force periodic keyframes** — Call `encoder.force_intra_frame()` every ~2 seconds so the decoder can (re)sync if it misses a frame. Without this, a single dropped packet means permanent black until restart.
 - **Connection sequence**: Connecting → Connected → TrackAdded(RemoteTrack) — only start encoding after Connected.
+- **`on_track` fires after first RTP** — In webrtc-rs v0.14, `on_track` fires when the first RTP packet is physically received, not during SDP negotiation. Start sending before expecting the track on the receiver side.
+- **Annex B start codes required** — `openh264::Decoder::decode()` expects Annex B format (`[00 00 00 01]` prefix before each NAL unit). The H264 depacketizer's STAP-A output includes start codes, but single NAL / FU-A output does not — must prepend before decoding.
+- **Interceptor registry required for media** — `APIBuilder` must include `register_default_interceptors()` + `with_interceptor_registry()`. Without interceptors, `read_rtp()` blocks indefinitely. Data channels work without them (different SCTP path).
+- **RTCP drain required** — `add_track()` returns an `RTCRtpSender` whose RTCP must be read (drained) in a background task for RTP to flow correctly.
 - **`openh264::Encoder::new()`** detects dimensions from the first `YUVSource` — no need to pass width/height to the config.
 
 ## Notes
