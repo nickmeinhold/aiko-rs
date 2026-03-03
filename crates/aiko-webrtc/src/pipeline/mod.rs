@@ -31,7 +31,7 @@ pub use video_sink::{WebRtcVideoSink, WebRtcVideoSinkConfig};
 pub use video_source::WebRtcVideoSource;
 
 #[cfg(feature = "audio")]
-pub use audio_sink::{WebRtcAudioSink, WebRtcAudioSinkConfig};
+pub use audio_sink::{OpusApplication, WebRtcAudioSink, WebRtcAudioSinkConfig};
 
 #[cfg(feature = "audio")]
 pub use audio_source::WebRtcAudioSource;
