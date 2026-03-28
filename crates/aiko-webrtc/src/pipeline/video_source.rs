@@ -108,10 +108,20 @@ impl SourceElement for WebRtcVideoSource {
                 .await
                 .map_err(|e| ElementError::Processing(format!("read_rtp: {e}")))?;
 
-            // Feed to depacketizer; returns Some(nalu_bytes) when a complete NAL unit is ready
+            // Feed to depacketizer; returns Some(nalu_bytes) when a complete NAL unit is ready.
+            // STAP-A packets already include Annex B start codes; single NAL and FU-A do not.
             if let Some(nalu_data) = self.depacketizer.process_rtp(&rtp_packet) {
-                // Decode the NAL unit
-                match decoder.decode(&nalu_data) {
+                // openh264 requires Annex B format (start code prefix before each NAL unit).
+                // STAP-A output already has start codes; single NAL / FU-A need them prepended.
+                let annex_b = if nalu_data.starts_with(&[0x00, 0x00, 0x00, 0x01]) {
+                    nalu_data
+                } else {
+                    let mut buf = vec![0x00, 0x00, 0x00, 0x01];
+                    buf.extend_from_slice(&nalu_data);
+                    buf
+                };
+
+                match decoder.decode(&annex_b) {
                     Ok(Some(decoded)) => {
                         let (w, h) = decoded.dimensions();
                         let w = w as u32;
